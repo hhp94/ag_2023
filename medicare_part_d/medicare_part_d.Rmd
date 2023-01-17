@@ -1,0 +1,199 @@
+---
+title: "Medicare Part D Dashboard"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+    css: css/ag_styles.css
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(shiny)
+library(shinyWidgets)
+library(shinyjs)
+library(DT)
+
+library(data.table) # Requires dev version of data.table
+library(scales)
+library(purrr)
+library(dplyr)
+```
+
+```{r}
+md <- fst::read_fst(here::here("data", "cleaned_medicare_part_d.fst"),
+                    as.data.table = TRUE)
+states <- readRDS(here::here("data", "states.rds"))
+
+var_for_sum <- c("Tot_Prscrbrs", "Tot_Clms", "Tot_Drug_Cst", "Tot_Benes")
+
+var_label_fns <- function(x) {
+  switch(x, 
+         "Tot_Prscrbrs" = "Total Prescribers",
+         "Tot_Clms" = "Total Claims",
+         "Tot_Drug_Cst" = "Total Drug Cost ($)",
+         "Tot_Benes" = "Total Beneficiaries",
+         "Brnd_Name" = "Brand Name",
+         "Gnrc_Name" = "Generic Name")
+}
+```
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+```{r}
+useShinyjs(rmd = TRUE)
+
+awesomeCheckboxGroup(
+  inputId = "year_inp",
+  label = "Year",
+  choices = 2016:2020,
+  selected = 2016:2020
+)
+
+pickerInput(
+  inputId = "state_inp",
+  label = "State",
+  choices = states$state,
+  selected = states$state,
+  options = list(
+    `live-search` = TRUE,
+    `actions-box` = TRUE,
+    `selected-text-format` = "count > 3"
+  ),
+  multiple = TRUE
+)
+
+prettyRadioButtons(
+   inputId = "sum_by",
+   label = "Sum by", 
+   choices = set_names(var_for_sum, map_chr(var_for_sum, var_label_fns)),
+   selected = "Tot_Drug_Cst"
+)
+
+sum_by_labeled <- reactive({var_label_fns(input$sum_by)})
+```
+
+
+```{r}
+prettySwitch(
+   inputId = "filter_toggle",
+   label = "Advanced Filters"
+)
+
+conditionalPanel(
+  condition = "input.filter_toggle == true",
+  prettyRadioButtons(
+    inputId = "raw_perc_toggle",
+    label = NULL,
+    choices = c("Raw", "Percent"),
+    inline = TRUE,
+    status = "primary",
+    fill = TRUE
+  ),
+  uiOutput("raw_perc_slider")
+
+)
+
+output$raw_perc_slider <- renderUI({
+  if (input$raw_perc_toggle == "Raw") {
+    numericRangeInput(
+      "raw_slider",
+      paste(sum_by_labeled(), "Raw"),
+      value = c(0, 100),
+      min = 0,
+      max = 100
+    )
+  } else {
+    numericRangeInput(
+      "raw_slider",
+      paste(sum_by_labeled(), "Percent"),
+      value = c(0, 100),
+      min = 0,
+      max = 100
+    )
+  }
+})
+```
+
+
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Chart A
+```{r}
+selected_years <- reactive({as.numeric(input$year_inp)})
+
+filtered_tbl <-
+  reactive({
+    md[year %in% selected_years() & state %in% input$state_inp,
+       list(var_label = sum(var_sum, na.rm = TRUE)),
+       by = c(brand_label = "Brnd_Name", generic_label = "Gnrc_Name"),
+       env = list(
+         var_sum = input$sum_by,
+         brand_label = var_label_fns("Brnd_Name"),
+         generic_label = var_label_fns("Gnrc_Name"),
+         var_label = sum_by_labeled()
+       )] %>%
+    cbind(
+      .[
+        ,
+        list(Percent = var_label/sum(var_label)),
+        env = list(var_label = sum_by_labeled())])
+  }) |>
+  bindEvent(selected_years(), input$state_inp, input$sum_by)
+
+range_raw <-
+  reactive({
+    filtered_tbl()[, range(agg_var), env = list(agg_var = sum_by_labeled())]
+  })
+
+renderDataTable({
+  datatable(filtered_tbl(), rownames = FALSE) |>
+    formatRound(sum_by_labeled(), digits = 2) |> 
+    formatPercentage("Percent", digits = 4)
+})
+```
+
+```{r}
+# reactive({
+#     datatable({
+#       md[year %in% selected_years() & state %in% input$state_inp,
+#          list(var_label = sum(var_sum, na.rm = TRUE)),
+#          by = c(brand_label = "Brnd_Name", generic_label = "Gnrc_Name"),
+#          env = list(
+#            var_sum = input$sum_by,
+#            brand_label = var_label_fns("Brnd_Name"),
+#            generic_label = var_label_fns("Gnrc_Name"),
+#            var_label = sum_by_labeled()
+#          )]
+#     },
+#     rownames = FALSE) |>
+#       formatRound(sum_by_labeled())
+#   }) |>
+#   bindEvent(selected_years(), input$state_inp, input$sum_by)
+```
+
+
+### Chart B
+
+```{r}
+renderPrint(range_raw())
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Chart C
+
+```{r}
+
+```
+
+### Chart D
+
+```{r}
+
+```
+
