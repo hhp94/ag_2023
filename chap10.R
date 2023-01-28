@@ -30,11 +30,11 @@ ui <- fluidPage(
 
 server <- function(input, output, session) {
   col_names <- reactive(paste0("col", seq_len(input$n)))
-  
+
   output$col <- renderUI({
     map(col_names(), ~ textInput(.x, NULL))
   })
-  
+
   output$palette <- renderText({
     map_chr(col_names(), ~ input[[.x]] %||% "")
   })
@@ -50,30 +50,33 @@ ui <- fluidPage(
       uiOutput("col"),
     ),
     mainPanel(
-      plotOutput("plot")  
+      plotOutput("plot")
     )
   )
 )
 
 server <- function(input, output, session) {
   col_names <- reactive(paste0("col", seq_len(input$n)))
-  
+
   output$col <- renderUI({
     map(col_names(), ~ textInput(.x, NULL, value = isolate(input[[.x]])))
   })
-  
-  output$plot <- renderPlot({
-    cols <- map_chr(col_names(), ~ input[[.x]] %||% "")
-    # convert empty inputs to transparent
-    cols[cols == ""] <- NA
-    
-    barplot(
-      rep(1, length(cols)), 
-      col = cols,
-      space = 0, 
-      axes = FALSE
-    )
-  }, res = 96)
+
+  output$plot <- renderPlot(
+    {
+      cols <- map_chr(col_names(), ~ input[[.x]] %||% "")
+      # convert empty inputs to transparent
+      cols[cols == ""] <- NA
+
+      barplot(
+        rep(1, length(cols)),
+        col = cols,
+        space = 0,
+        axes = FALSE
+      )
+    },
+    res = 96
+  )
 }
 
 shinyApp(ui, server)
@@ -125,7 +128,6 @@ server <- function(input, output, session) {
     each_var <- map(names(iris), ~ filter_var(iris[[.x]], input[[.x]]))
     reduce(each_var, ~ .x & .y)
   })
-  
+
   output$data <- renderTable(head(iris[selected(), ], 12))
 }
-

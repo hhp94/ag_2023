@@ -4,12 +4,19 @@ make_ui <- function(x, var, label_fns) {
 
 make_ui.numeric <- function(x, var, label_fns) {
   rng <- range(x, na.rm = TRUE)
-  sliderInput(var, label_fns(var), min = rng[1], max = rng[2], value = rng)
+  numericRangeInput(var, label_fns(var), min = rng[1], max = rng[2], value = rng)
 }
-
+ 
 make_ui.factor <- function(x, var, label_fns) {
   levs <- levels(x)
-  selectInput(var, label_fns(var), choices = levs, selected = levs, multiple = TRUE)
+  awesomeCheckboxGroup(
+    inputId = var,
+    label = label_fns(var),
+    choices = levs,
+    selected = levs,
+    inline = TRUE,
+    status = "primary"
+  )
 }
 
 filter_var <- function(x, val) {

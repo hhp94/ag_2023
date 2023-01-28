@@ -15,7 +15,9 @@ library(shinyWidgets)
 library(shinyjs)
 library(DT)
 
+library(plotly)
 library(data.table) # Requires dev version of data.table
+library(ggplot2)
 library(scales)
 library(purrr)
 library(dplyr)
@@ -23,20 +25,11 @@ library(dplyr)
 
 ```{r}
 md <- fst::read_fst(here::here("data", "cleaned_medicare_part_d.fst"),
-                    as.data.table = TRUE)
+  as.data.table = TRUE
+)
 states <- readRDS(here::here("data", "states.rds"))
-
-var_for_sum <- c("Tot_Prscrbrs", "Tot_Clms", "Tot_Drug_Cst", "Tot_Benes")
-
-var_label_fns <- function(x) {
-  switch(x, 
-         "Tot_Prscrbrs" = "Total Prescribers",
-         "Tot_Clms" = "Total Claims",
-         "Tot_Drug_Cst" = "Total Drug Cost ($)",
-         "Tot_Benes" = "Total Beneficiaries",
-         "Brnd_Name" = "Brand Name",
-         "Gnrc_Name" = "Generic Name")
-}
+source(here::here("R", "dynamic_filter.R"))
+source(here::here("R", "utils.R"))
 ```
 
 Column {.sidebar}
@@ -47,9 +40,13 @@ useShinyjs(rmd = TRUE)
 awesomeCheckboxGroup(
   inputId = "year_inp",
   label = "Year",
-  choices = 2016:2020,
-  selected = 2016:2020
+  choices = 2016:2019,
+  selected = 2016:2019
 )
+
+selected_years <- reactive({
+  as.numeric(input$year_inp)
+})
 
 pickerInput(
   inputId = "state_inp",
@@ -63,137 +60,222 @@ pickerInput(
   ),
   multiple = TRUE
 )
-
-prettyRadioButtons(
-   inputId = "sum_by",
-   label = "Sum by", 
-   choices = set_names(var_for_sum, map_chr(var_for_sum, var_label_fns)),
-   selected = "Tot_Drug_Cst"
-)
-
-sum_by_labeled <- reactive({var_label_fns(input$sum_by)})
 ```
-
 
 ```{r}
 prettySwitch(
-   inputId = "filter_toggle",
-   label = "Advanced Filters"
+  inputId = "filter_toggle",
+  label = "Advanced Filters"
 )
 
 conditionalPanel(
   condition = "input.filter_toggle == true",
-  prettyRadioButtons(
-    inputId = "raw_perc_toggle",
-    label = NULL,
-    choices = c("Raw", "Percent"),
-    inline = TRUE,
-    status = "primary",
-    fill = TRUE
+  awesomeCheckboxGroup(
+    inputId = "extra_filter",
+    label = "Filter by",
+    choices = set_names(extra_filter_choices, var_label_fns_v(extra_filter_choices)),
+    selected = NULL
   ),
-  uiOutput("raw_perc_slider")
-
+  uiOutput("dynamic"),
+  actionButton(
+    inputId = "apply_advanced",
+    label = "Apply Advanced Filters",
+    icon = icon("play")
+  )
 )
 
-output$raw_perc_slider <- renderUI({
-  if (input$raw_perc_toggle == "Raw") {
-    numericRangeInput(
-      "raw_slider",
-      paste(sum_by_labeled(), "Raw"),
-      value = c(0, 100),
-      min = 0,
-      max = 100
-    )
-  } else {
-    numericRangeInput(
-      "raw_slider",
-      paste(sum_by_labeled(), "Percent"),
-      value = c(0, 100),
-      min = 0,
-      max = 100
-    )
-  }
-})
+output$dynamic <-
+  renderUI({
+    map(input$extra_filter, \(x) {make_ui(filtered_tbl()[[x]], x, var_label_fns)})
+  })
 ```
 
+```{r}
+wellPanel(
+  titlePanel("Selected Drug"),
+  renderValueBox(selected_drug())
+)
+```
 
+```{r}
+br()
+hr()
+br()
+
+actionButton(inputId = "apply", label = "Apply", icon = icon("play"))
+actionButton(inputId = "reset", label = "Reset", icon = icon("sync"))
+
+observeEvent(eventExpr = input$reset, handlerExpr = {
+
+  updateAwesomeCheckboxGroup(
+    session = session,
+    inputId  = "year_inp",
+    selected = 2016:2019,
+    choices = 2016:2019)
+
+  updatePickerInput(
+    session = session,
+    inputId = "state_inp",
+    selected = states$state)
+  
+  updateAwesomeCheckboxGroup(
+    session = session,
+    inputId  = "extra_filter",
+    choices = set_names(extra_filter_choices, var_label_fns_v(extra_filter_choices)),
+    selected = NULL)
+  
+  shinyjs::delay(ms = 200, expr = {
+    shinyjs::click(id = "apply_advanced")
+  })
+  
+  updateSwitchInput(session = session, inputId = "filter_toggle", value = FALSE)
+  
+  shinyjs::delay(ms = 200, expr = {
+    shinyjs::click(id = "apply")
+  })
+
+})
+```
 
 Column {data-width=350}
 -----------------------------------------------------------------------
 
 ### Chart A
 ```{r}
-selected_years <- reactive({as.numeric(input$year_inp)})
-
 filtered_tbl <-
   reactive({
-    md[year %in% selected_years() & state %in% input$state_inp,
-       list(var_label = sum(var_sum, na.rm = TRUE)),
-       by = c(brand_label = "Brnd_Name", generic_label = "Gnrc_Name"),
-       env = list(
-         var_sum = input$sum_by,
-         brand_label = var_label_fns("Brnd_Name"),
-         generic_label = var_label_fns("Gnrc_Name"),
-         var_label = sum_by_labeled()
-       )] %>%
-    cbind(
-      .[
-        ,
-        list(Percent = var_label/sum(var_label)),
-        env = list(var_label = sum_by_labeled())])
-  }) |>
-  bindEvent(selected_years(), input$state_inp, input$sum_by)
-
-range_raw <-
-  reactive({
-    filtered_tbl()[, range(agg_var), env = list(agg_var = sum_by_labeled())]
+    md[
+      year %in% selected_years() & state %in% input$state_inp,
+      .SD,
+      .SDcols = var_for_display
+    ]
   })
 
-renderDataTable({
-  datatable(filtered_tbl(), rownames = FALSE) |>
-    formatRound(sum_by_labeled(), digits = 2) |> 
-    formatPercentage("Percent", digits = 4)
+selected <- reactive({
+  map(
+    input$extra_filter,
+    \(x) {
+      filter_var(filtered_tbl()[[x]], input[[x]])
+    }
+  ) |> 
+    reduce(`&`, .init = TRUE)
+}) |> 
+  bindEvent(input$apply_advanced, ignoreNULL = FALSE, ignoreInit = FALSE)
+
+# displayed_tbl <- reactive({head(filtered_tbl()[selected(), ])})
+displayed_tbl <- reactive({filtered_tbl()[selected(), ]})
+```
+
+```{r}
+displayed_tbl_dt <- reactive({
+  datatable(
+    displayed_tbl(),
+    colnames = var_label_fns_v(var_for_display),
+    selection = "single",
+    rownames = FALSE
+  ) |> 
+    formatRound("Tot_Drug_Cst", digits = 4) |> 
+    formatRound(c("Tot_Prscrbrs", "Tot_Clms", "Tot_Benes"), digits = 4)
+}) |> 
+  bindEvent(input$apply, ignoreNULL = FALSE, ignoreInit = FALSE)
+
+output$main_tbl <- renderDataTable({
+  displayed_tbl_dt()
 })
+
+dataTableOutput(outputId = "main_tbl")
 ```
 
 ```{r}
-# reactive({
-#     datatable({
-#       md[year %in% selected_years() & state %in% input$state_inp,
-#          list(var_label = sum(var_sum, na.rm = TRUE)),
-#          by = c(brand_label = "Brnd_Name", generic_label = "Gnrc_Name"),
-#          env = list(
-#            var_sum = input$sum_by,
-#            brand_label = var_label_fns("Brnd_Name"),
-#            generic_label = var_label_fns("Gnrc_Name"),
-#            var_label = sum_by_labeled()
-#          )]
-#     },
-#     rownames = FALSE) |>
-#       formatRound(sum_by_labeled())
-#   }) |>
-#   bindEvent(selected_years(), input$state_inp, input$sum_by)
-```
-
-
-### Chart B
-
-```{r}
-renderPrint(range_raw())
+selected_drug <-
+  reactive({
+    displayed_tbl()[input$main_tbl_rows_selected, Brnd_Name]
+  })
 ```
 
 Column {data-width=350}
 -----------------------------------------------------------------------
 
-### Chart C
-
+### National Trend Overtime
 ```{r}
+awesomeRadio(
+  inputId = "viz_by_2",
+  label = NULL,
+  width = "100%",
+  inline = TRUE,
+  choices = set_names(var_for_agg, map_chr(var_for_agg, var_label_fns)),
+  selected = "Tot_Drug_Cst"
+)
 
+plotly_overtime_df <- reactive({
+  displayed_tbl()[
+    Brnd_Name %in% selected_drug(),
+    list(var1 = sum(var2)),
+    by = c("Brnd_Name", "year"),
+    env = list(var1 = var_label_fns(input$viz_by_2),
+               var2 = input$viz_by_2)]
+})
+
+plotly_overtime <- reactive({
+  if (is.null(input$viz_by_2)) {
+    return(NULL)
+  } else {
+    p <- plotly_overtime_df() |>
+      ggplot(aes(x = year, y = .data[[var_label_fns(input$viz_by_2)]])) +
+      geom_point() +
+      geom_path(aes(group = Brnd_Name)) +
+      theme_minimal()
+    
+    ggplotly(p)  %>%
+      layout(margin = list(b = 50))
+  
+  }
+})
+
+renderPlotly({plotly_overtime()})
 ```
 
-### Chart D
-
+### Medicare part D data by State
 ```{r}
 
+awesomeRadio(
+  inputId = "viz_by_1",
+  label = NULL,
+  width = "100%",
+  inline = TRUE,
+  choices = set_names(var_for_agg, map_chr(var_for_agg, var_label_fns)),
+  selected = "Tot_Drug_Cst"
+)
+
+plotly_chloropleth_df <- reactive({
+  displayed_tbl()[
+    Brnd_Name %in% selected_drug(), 
+    list(var1 = sum(var2)), 
+    by = c("Brnd_Name", "state"),
+    env = list(var1 = var_label_fns(input$viz_by_1),
+               var2 = input$viz_by_1)
+  ]
+})
+
+# renderPrint({plotly_chloropleth_df()})
+output$plotly_chloropleth <- renderPlotly(expr = {
+
+  plotly_chloropleth_df() %>%
+    plot_geo(locationmode = "USA-states") %>%
+    add_trace(z         = as.formula(paste0("~`", var_label_fns(input$viz_by_1), "`")),
+              locations = ~state,
+              color     = as.formula(paste0("~`", var_label_fns(input$viz_by_1), "`")),
+              colors    = "Blues") %>%
+    layout(
+        geo = list(
+            scope = "usa",
+            projection = list(type = "albers usa"),
+            showlakes  = TRUE,
+            lakecolor  = toRGB("white")
+        )
+    )
+})
+
+plotlyOutput(outputId = "plotly_chloropleth")
 ```
 
