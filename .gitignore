@@ -37,3 +37,5 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+./data/cleaned_medicare_part_d.fst
+./chap10.R
