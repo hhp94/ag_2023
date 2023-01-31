@@ -83,9 +83,7 @@ shinyApp(ui, server)
 
 stringr::str_to_upper
 
-
 map(names(iris), ~ make_ui(iris[[.x]], .x, stringr::str_to_upper))
-
 
 make_ui <- function(x, var) {
   if (is.numeric(x)) {
@@ -99,7 +97,6 @@ make_ui <- function(x, var) {
     NULL
   }
 }
-
 
 filter_var <- function(x, val) {
   if (is.numeric(x)) {

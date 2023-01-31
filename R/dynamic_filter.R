@@ -1,13 +1,13 @@
-make_ui <- function(x, var, label_fns) {
+make_ui <- function(x, var, label_fns, n_digits) {
   UseMethod("make_ui")
 }
 
-make_ui.numeric <- function(x, var, label_fns) {
-  rng <- range(x, na.rm = TRUE)
+make_ui.numeric <- function(x, var, label_fns, n_digits) {
+  rng <- round(range(x, na.rm = TRUE), n_digits)
   numericRangeInput(var, label_fns(var), min = rng[1], max = rng[2], value = rng)
 }
- 
-make_ui.factor <- function(x, var, label_fns) {
+
+make_ui.factor <- function(x, var, label_fns, n_digits) {
   levs <- levels(x)
   awesomeCheckboxGroup(
     inputId = var,

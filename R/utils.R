@@ -1,3 +1,5 @@
+n_digits <- 3
+
 var_label_fns <- function(x) {
   switch(x,
     "Tot_Prscrbrs" = "Total Prescribers",
@@ -9,12 +11,17 @@ var_label_fns <- function(x) {
     "Opioid_Drug_Flag" = "Opioid",
     "Opioid_LA_Drug_Flag" = "Long-acting Opioid",
     "state" = "State",
-    "year" = "Year"
+    "year" = "Year",
+    x
   )
 }
 
 var_label_fns_v <- function(x) {
   map_chr(x, var_label_fns)
+}
+
+choice_masker <- function(x) {
+  purrr::set_names(x, var_label_fns_v(x))
 }
 
 var_for_agg <-
@@ -27,14 +34,14 @@ var_for_agg <-
 
 extra_filter_choices <-
   c(
-    "Tot_Prscrbrs",
-    "Tot_Clms",
-    "Tot_Drug_Cst",
-    "Tot_Benes",
+    var_for_agg,
     "Opioid_Drug_Flag",
     "Opioid_LA_Drug_Flag"
   )
 
-
-var_for_display <-
+var_for_disp <-
   c("Brnd_Name", "Gnrc_Name", extra_filter_choices, "state", "year")
+
+plotly_formula <- function(x) {
+  as.formula(paste0("~`", var_label_fns(x), "`"))
+}
